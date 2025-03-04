@@ -175,7 +175,7 @@
     const MODEL_CONFIG = {
       input_shapes: [[1, 3, 640, 640]],
       obj_class_score_th: 0.35,
-      attr_class_score_th: 0.70,
+      attr_class_score_th: 0.75,
       keypoint_th: 0.35
     };
 
@@ -242,6 +242,7 @@
     function postprocess({
       image,
       boxes,
+      dimensions,
       input_shapes,
       obj_class_score_th,
       attr_class_score_th,
@@ -264,12 +265,22 @@
         const scores_keep = [];
         const boxes_keep = [];
 
-        for (let i = 0; i < boxes.length; i++) {
-          const score = boxes[i][5];
+        // boxes: [instances, [batchno, classid, score, x1, y1, x2, y2]]
+        const boxesCount = dimensions[1]; // 通常は1250
+        for (let i = 0; i < boxesCount; i++) {
+          const score = boxes[i * 6 + 5];
           if (score > box_score_threshold) {
+            const box = [
+              boxes[i * 6 + 0],
+              boxes[i * 6 + 1],
+              boxes[i * 6 + 2],
+              boxes[i * 6 + 3],
+              boxes[i * 6 + 4],
+              score
+            ];
             keep_idxs.push(i);
             scores_keep.push([score]);
-            boxes_keep.push(boxes[i]);
+            boxes_keep.push(box);
           }
         }
 
@@ -324,6 +335,12 @@
           });
 
           // Adult, Child merge
+          // classid: 0 -> Body
+          //   classid: 1 -> Adult
+          //   classid: 2 -> Child
+          // 1. Calculate Adult and Child IoUs for Body detection results
+          // 2. Connect either the Adult or the Child with the highest score and the highest IoU with the Body.
+          // 3. Exclude Adult and Child from detection results
           if (!disable_generation_identification_mode) {
             const body_boxes = result_boxes.filter(box => box.classid === 0);
             const generation_boxes = result_boxes.filter(box => [1, 2].includes(box.classid));
@@ -332,6 +349,12 @@
           result_boxes = result_boxes.filter(box => ![1, 2].includes(box.classid));
 
           // Male, Female merge
+          // classid: 0 -> Body
+          //   classid: 3 -> Male
+          //   classid: 4 -> Female
+          // 1. Calculate Male and Female IoUs for Body detection results
+          // 2. Connect either the Male or the Female with the highest score and the highest IoU with the Body.
+          // 3. Exclude Male and Female from detection results
           if (!disable_gender_identification_mode) {
             const body_boxes = result_boxes.filter(box => box.classid === 0);
             const gender_boxes = result_boxes.filter(box => [3, 4].includes(box.classid));
@@ -340,6 +363,18 @@
           result_boxes = result_boxes.filter(box => ![3, 4].includes(box.classid));
 
           // HeadPose merge
+          // classid: 7 -> Head
+          //   classid:  8 -> Front
+          //   classid:  9 -> Right-Front
+          //   classid: 10 -> Right-Side
+          //   classid: 11 -> Right-Back
+          //   classid: 12 -> Back
+          //   classid: 13 -> Left-Back
+          //   classid: 14 -> Left-Side
+          //   classid: 15 -> Left-Front
+          // 1. Calculate HeadPose IoUs for Head detection results
+          // 2. Connect either the HeadPose with the highest score and the highest IoU with the Head.
+          // 3. Exclude HeadPose from detection results
           if (!disable_headpose_identification_mode) {
             const head_boxes = result_boxes.filter(box => box.classid === 7);
             const headpose_boxes = result_boxes.filter(box =>
@@ -350,6 +385,12 @@
             ![8, 9, 10, 11, 12, 13, 14, 15].includes(box.classid));
 
           // Left and right hand merge
+          // classid: 23 -> Hand
+          //   classid: 24 -> Left-Hand
+          //   classid: 25 -> Right-Hand
+          // 1. Calculate Left-Hand and Right-Hand IoUs for Hand detection results
+          // 2. Connect either the Left-Hand or the Right-Hand with the highest score and the highest IoU with the Hand.
+          // 3. Exclude Left-Hand and Right-Hand from detection results
           if (!disable_left_and_right_hand_identification_mode) {
             const hand_boxes = result_boxes.filter(box => box.classid === 23);
             const left_right_hand_boxes = result_boxes.filter(box =>
@@ -359,6 +400,10 @@
           result_boxes = result_boxes.filter(box => ![24, 25].includes(box.classid));
 
           // Keypoints NMS
+          // Suppression of overdetection
+          // classid: 21 -> Shoulder
+          // classid: 22 -> Elbow
+          // classid: 26 -> Knee
           for (const target_classid of [21, 22, 26]) {
             const keypoints_boxes = result_boxes.filter(box => box.classid === target_classid);
             const filtered_keypoints_boxes = nms(keypoints_boxes, 0.20);
@@ -768,9 +813,9 @@
       // RGBチャネルに変換しノーマライズ (0-255 -> 0-1)
       for (let i = 0; i < modelInputSize * modelInputSize; i++) {
         // RGBをHWCからCHWに変換（PyTorchモデルは通常CHW形式）
-        inputArray[i] = data[i * 4] / 255.0;                        // R
-        inputArray[i + modelInputSize * modelInputSize] = data[i * 4 + 1] / 255.0;    // G
-        inputArray[i + 2 * modelInputSize * modelInputSize] = data[i * 4 + 2] / 255.0;  // B
+        inputArray[i] = data[i * 4 + 2] / 255.0;                                       // B
+        inputArray[i + modelInputSize * modelInputSize] = data[i * 4 + 1] / 255.0;     // G
+        inputArray[i + 2 * modelInputSize * modelInputSize] = data[i * 4 + 0] / 255.0; // R
       }
 
       // ONNX用のテンソルを作成
@@ -821,22 +866,11 @@
       const data = output.data;
       const dimensions = output.dims;
 
-      // boxes配列の構築
-      const boxes = [];
-      const boxesCount = dimensions[1]; // 通常は1250
-
-      for (let i = 0; i < boxesCount; i++) {
-        const box = [];
-        for (let j = 0; j < 6; j++) { // [batchno, classid, score, x1, y1, x2, y2]の最初の6つ
-          box.push(data[i * 6 + j]);
-        }
-        boxes.push(box);
-      }
-
       // DEIM後処理を実行
       const result_boxes = postprocess({
         image: { shape: [height, width, 3] },
-        boxes: boxes,
+        boxes: data,
+        dimensions: dimensions,
         input_shapes: MODEL_CONFIG.input_shapes,
         obj_class_score_th: MODEL_CONFIG.obj_class_score_th,
         attr_class_score_th: MODEL_CONFIG.attr_class_score_th,
