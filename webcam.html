@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Webカメラアクセスデモ</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background-color: white;
+      padding: 20px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      border-radius: 8px;
+    }
+    h1 {
+      color: #333;
+      text-align: center;
+    }
+    .video-container {
+      position: relative;
+      margin: 20px auto;
+      max-width: 640px;
+    }
+    #video {
+      width: 100%;
+      display: block;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    #canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .controls {
+      margin: 20px 0;
+      text-align: center;
+    }
+    button {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 16px;
+      margin: 4px 2px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    .status {
+      margin: 10px 0;
+      padding: 10px;
+      text-align: center;
+      font-weight: bold;
+    }
+    .loading {
+      color: #ff9800;
+    }
+    .success {
+      color: #4CAF50;
+    }
+    .error {
+      color: #f44336;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Webカメラアクセスデモ</h1>
+    <div class="status" id="status">カメラへのアクセスを許可してください</div>
+    <div class="video-container">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="canvas"></canvas>
+    </div>
+    <div class="controls">
+      <button id="start-camera">カメラを開始</button>
+      <button id="stop-camera" disabled>カメラを停止</button>
+      <button id="take-photo">写真を撮影</button>
+    </div>
+    <div class="photo-container" id="photo-container" style="display: none; margin-top: 20px;">
+      <h3>撮影した画像</h3>
+      <img id="photo" style="max-width: 100%; border: 1px solid #ddd; border-radius: 4px;">
+    </div>
+  </div>
+
+  <script>
+    // グローバル変数
+    let video;
+    let canvas;
+    let ctx;
+    let stream;
+
+    // DOMが読み込まれたら初期化
+    document.addEventListener('DOMContentLoaded', () => {
+      // 要素を取得
+      video = document.getElementById('video');
+      canvas = document.getElementById('canvas');
+      ctx = canvas.getContext('2d');
+      const startButton = document.getElementById('start-camera');
+      const stopButton = document.getElementById('stop-camera');
+      const takePhotoButton = document.getElementById('take-photo');
+      const statusElement = document.getElementById('status');
+      const photoContainer = document.getElementById('photo-container');
+      const photo = document.getElementById('photo');
+
+      // ボタンのイベントリスナー
+      startButton.addEventListener('click', async () => {
+        try {
+          statusElement.textContent = 'カメラにアクセスしています...';
+          statusElement.className = 'status loading';
+
+          // カメラを開始
+          await startCamera();
+
+          startButton.disabled = true;
+          stopButton.disabled = false;
+          takePhotoButton.disabled = false;
+          statusElement.textContent = 'カメラアクセス成功！';
+          statusElement.className = 'status success';
+        } catch (error) {
+          statusElement.textContent = `カメラエラー: ${error.message}`;
+          statusElement.className = 'status error';
+        }
+      });
+
+      stopButton.addEventListener('click', () => {
+        stopCamera();
+        startButton.disabled = false;
+        stopButton.disabled = true;
+        takePhotoButton.disabled = true;
+        statusElement.textContent = 'カメラを停止しました。';
+        statusElement.className = 'status';
+      });
+
+      takePhotoButton.addEventListener('click', () => {
+        if (stream && stream.active) {
+          // 現在のビデオフレームをキャプチャ
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+          // キャンバスから画像URLを取得
+          const imageUrl = canvas.toDataURL('image/png');
+          photo.src = imageUrl;
+
+          // 画像表示エリアを表示
+          photoContainer.style.display = 'block';
+        }
+      });
+
+      // 初期状態では撮影ボタンを無効化
+      takePhotoButton.disabled = true;
+    });
+
+    // カメラを開始する関数
+    async function startCamera() {
+      try {
+        // カメラへのアクセスを要求
+        const constraints = {
+          video: {
+            facingMode: 'environment', // リアカメラを優先（モバイルデバイス向け）
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        };
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+
+        // ビデオのメタデータがロードされたときにキャンバスサイズを設定
+        return new Promise((resolve) => {
+          video.onloadedmetadata = () => {
+            // キャンバスのサイズをビデオに合わせる
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            resolve();
+          };
+        });
+      } catch (error) {
+        console.error('カメラアクセスエラー:', error);
+        throw error;
+      }
+    }
+
+    // カメラを停止する関数
+    function stopCamera() {
+      if (stream) {
+        // すべてのトラックを停止
+        stream.getTracks().forEach(track => {
+          track.stop();
+        });
+
+        // ビデオのソースをクリア
+        video.srcObject = null;
+        stream = null;
+
+        // キャンバスをクリア
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+  </script>
+</body>
+</html>
