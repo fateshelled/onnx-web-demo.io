@@ -684,7 +684,10 @@
 
         // ONNXランタイムオプション
         const options = {
-          executionProviders: ['wasm'],
+        executionProviders: [
+          // webgl not support int64
+          'webgpu', 'wasm'
+        ],
           graphOptimizationLevel: 'all'
         };
 
