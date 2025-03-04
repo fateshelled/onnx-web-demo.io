@@ -684,8 +684,11 @@
 
         // ONNXランタイムオプション
         const options = {
-        executionProviders: [
-            'webgpu', 'wasm'
+          // executionProviders: [
+          //   'webgpu', 'wasm'
+          // ],
+          executionProviders: [
+            'wasm'
           ],
           graphOptimizationLevel: 'all'
         };
