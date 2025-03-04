@@ -175,9 +175,9 @@
     // モデル設定
     const MODEL_CONFIG = {
       input_shapes: [[1, 3, 640, 640]],
-      obj_class_score_th: 0.10,
-      attr_class_score_th: 0.10,
-      keypoint_th: 0.1
+      obj_class_score_th: 0.35,
+      attr_class_score_th: 0.75,
+      keypoint_th: 0.35
     };
 
     /**
@@ -686,7 +686,6 @@
         // ONNXランタイムオプション
         const options = {
         executionProviders: [
-            // webgl not support int64
             'webgpu', 'wasm'
           ],
           graphOptimizationLevel: 'all'
