@@ -266,8 +266,7 @@
     async function loadModel(modelName) {
       try {
         // モデルのURLを設定
-        // 注: 実際の使用時には、モデルファイルを自分のリポジトリに配置する必要があります
-        const modelUrl = `https://github.com/fateshelled/onnx-web-demo.io/releases/download/v0.1/${modelName}.onnx`;
+        const modelUrl = `./releases/download/v0.1/${modelName}.onnx`;
 
         // ONNXランタイムオプション
         const options = {
