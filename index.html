@@ -174,9 +174,9 @@
     // モデル設定
     const MODEL_CONFIG = {
       input_shapes: [[1, 3, 640, 640]],
-      obj_class_score_th: 0.35,
-      attr_class_score_th: 0.75,
-      keypoint_th: 0.35
+      obj_class_score_th: 0.10,
+      attr_class_score_th: 0.10,
+      keypoint_th: 0.1
     };
 
     /**
@@ -242,7 +242,6 @@
     function postprocess({
       image,
       boxes,
-      dimensions,
       input_shapes,
       obj_class_score_th,
       attr_class_score_th,
@@ -265,22 +264,12 @@
         const scores_keep = [];
         const boxes_keep = [];
 
-        // boxes: [instances, [batchno, classid, score, x1, y1, x2, y2]]
-        const boxesCount = dimensions[1]; // 通常は1250
-        for (let i = 0; i < boxesCount; i++) {
-          const score = boxes[i * 6 + 5];
+        for (let i = 0; i < boxes.length; i++) {
+          const score = boxes[i][5];
           if (score > box_score_threshold) {
-            const box = [
-              boxes[i * 6 + 0],
-              boxes[i * 6 + 1],
-              boxes[i * 6 + 2],
-              boxes[i * 6 + 3],
-              boxes[i * 6 + 4],
-              score
-            ];
             keep_idxs.push(i);
             scores_keep.push([score]);
-            boxes_keep.push(box);
+            boxes_keep.push(boxes[i]);
           }
         }
 
@@ -772,66 +761,42 @@
 
     // 前処理
     async function preprocess(videoElement) {
-      // キャンバスサイズをビデオに合わせる
+      // ビデオサイズを取得
       const width = videoElement.videoWidth;
       const height = videoElement.videoHeight;
 
-      // モデルの入力サイズ
-      const modelInputSize = 640;
-
-      // 一時的なキャンバスを作成
+      // 一時的なキャンバスを作成（ビデオと同じサイズ）
       const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = modelInputSize;
-      tempCanvas.height = modelInputSize;
+      tempCanvas.width = width;
+      tempCanvas.height = height;
       const tempCtx = tempCanvas.getContext('2d');
 
-      // アスペクト比を維持したリサイズのためのパラメータを計算
-      const scale = Math.min(modelInputSize / width, modelInputSize / height);
-      const scaledWidth = Math.round(width * scale);
-      const scaledHeight = Math.round(height * scale);
-      const dx = (modelInputSize - scaledWidth) / 2;
-      const dy = (modelInputSize - scaledHeight) / 2;
-
-      // 黒背景でクリア
-      tempCtx.fillStyle = '#000';
-      tempCtx.fillRect(0, 0, modelInputSize, modelInputSize);
-
-      // ビデオフレームを描画
-      tempCtx.drawImage(
-        videoElement,
-        0, 0, width, height,
-        dx, dy, scaledWidth, scaledHeight
-      );
+      // ビデオフレームをそのまま描画（リサイズなし）
+      tempCtx.drawImage(videoElement, 0, 0, width, height);
 
       // 画像データを取得
-      const imageData = tempCtx.getImageData(0, 0, modelInputSize, modelInputSize);
+      const imageData = tempCtx.getImageData(0, 0, width, height);
       const data = imageData.data;
 
       // Float32Arrayを作成
-      const inputArray = new Float32Array(3 * modelInputSize * modelInputSize);
+      const inputArray = new Float32Array(3 * width * height);
 
-      // RGBチャネルに変換しノーマライズ (0-255 -> 0-1)
-      for (let i = 0; i < modelInputSize * modelInputSize; i++) {
-        // RGBをHWCからCHWに変換（PyTorchモデルは通常CHW形式）
-        inputArray[i] = data[i * 4 + 2] / 255.0;                                       // B
-        inputArray[i + modelInputSize * modelInputSize] = data[i * 4 + 1] / 255.0;     // G
-        inputArray[i + 2 * modelInputSize * modelInputSize] = data[i * 4 + 0] / 255.0; // R
+      // RGB -> BGR
+      for (let i = 0; i < width * height; i++) {
+        // HWC -> CHW
+        inputArray[i] = data[i * 4 + 2];                       // B
+        inputArray[i + width * height] = data[i * 4 + 1];      // G
+        inputArray[i + 2 * width * height] = data[i * 4 + 1];  // R
       }
 
-      // ONNX用のテンソルを作成
-      const inputTensor = new ort.Tensor('float32', inputArray, [1, 3, modelInputSize, modelInputSize]);
+      // ONNX用のテンソルを作成（ビデオの元サイズを維持）
+      const inputTensor = new ort.Tensor('float32', inputArray, [1, 3, height, width]);
 
-      // 入力次元情報（スケーリングファクタなど）を返す
+      // 入力次元情報を返す（リサイズ関連のパラメータは不要）
       const inputDims = {
         width: width,
         height: height,
-        scaledWidth: scaledWidth,
-        scaledHeight: scaledHeight,
-        dx: dx,
-        dy: dy,
-        scale: scale,
-        modelInputSize: modelInputSize,
-        shape: [height, width, 3] // 画像の形状情報を追加
+        shape: [height, width, 3] // 画像の形状情報
       };
 
       return [inputTensor, inputDims];
@@ -859,18 +824,29 @@
 
     // DEIM結果の処理
     function processDEIMResults(output, inputDims) {
-      const { width, height, modelInputSize, scale, dx, dy } = inputDims;
+      const { width, height } = inputDims;
 
       // DEIM形式の出力を処理
       // 出力テンソルからboxesデータを抽出
       const data = output.data;
       const dimensions = output.dims;
 
+      // boxes配列の構築
+      const boxes = [];
+      const boxesCount = dimensions[1]; // 通常は1250
+
+      for (let i = 0; i < boxesCount; i++) {
+        const box = [];
+        for (let j = 0; j < 6; j++) { // [batchno, classid, score, x1, y1, x2, y2]の最初の6つ
+          box.push(data[i * 6 + j]);
+        }
+        boxes.push(box);
+      }
+
       // DEIM後処理を実行
       const result_boxes = postprocess({
         image: { shape: [height, width, 3] },
-        boxes: data,
-        dimensions: dimensions,
+        boxes: boxes,
         input_shapes: MODEL_CONFIG.input_shapes,
         obj_class_score_th: MODEL_CONFIG.obj_class_score_th,
         attr_class_score_th: MODEL_CONFIG.attr_class_score_th,
