@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>人物検出 - DEIMデモ</title>
+  <title>DEIM-Wholebody28デモ</title>
   <style>
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -112,10 +112,11 @@
 </head>
 <body>
   <div class="container">
-    <h1>リアルタイム人物検出デモ (DEIM)</h1>
+    <h1>DEIM-Wholebody28 DEMO</h1>
     <div class="model-info">
       <h3>モデル情報</h3>
-      <p>モデル名: <span id="model-name">DEIM Wholebody</span></p>
+      <p>モデル詳細: <a href="https://github.com/PINTO0309/PINTO_model_zoo/tree/main/465_DEIM-Wholebody28">PINTO_model_zoo 465 DEIM-Wholebody28</a></p>
+      <p>モデルライセンス: Apache License version 2.0</p>
       <p>
         <label for="model-select">モデルを選択:</label>
         <select id="model-select">
@@ -618,7 +619,6 @@
 
         const modelSelect = document.getElementById('model-select');
         const modelName = modelSelect.value;
-        document.getElementById('model-name').textContent = modelName;
 
         try {
           // モデルをロード
